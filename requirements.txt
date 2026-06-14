@@ -1,0 +1,15 @@
+# Núcleo
+discord.py>=2.7.1
+aiohttp>=3.13
+python-dotenv>=1.0
+
+# Voz — reconocimiento (STT), wake word y síntesis (TTS)
+discord-ext-voice-recv>=0.5.2a0
+vosk>=0.3.45
+faster-whisper>=1.2
+piper-tts>=1.4
+numpy>=1.26
+
+# audioop se eliminó de la stdlib en Python 3.13; este backport lo restituye.
+# Inofensivo en versiones anteriores.
+audioop-lts>=0.2; python_version >= "3.13"

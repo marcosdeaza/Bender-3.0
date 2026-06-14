@@ -1,0 +1,37 @@
+# Secrets / config
+.env
+.env.local
+
+# Runtime data (estado del bot, NO subir)
+bender_data.json
+*.json.bak*
+spotify_creds.json
+yt_cookies.txt
+
+# Modelos de voz (pesados — se descargan aparte, ver README)
+voice_models/
+vosk-model-*/
+*.onnx
+*.onnx.json
+
+# Audio temporal / clips
+*.wav
+clips/
+vsamples/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Logs
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
