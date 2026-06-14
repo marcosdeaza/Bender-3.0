@@ -122,7 +122,3 @@ El estado en runtime (usuarios, canales, reputación, vault…) se guarda en `be
 - **Personalidad configurable.** Bender tiene una personalidad deliberadamente satírica e irreverente, definida en el *system prompt* (`SERVER_CONTEXT` dentro de `bot.py`). Es solo texto: ajústalo al tono que quieras para tu comunidad.
 - **IDs específicos de servidor.** Los roles de color y emojis personalizados (`COLOR_ROLES` / `ROLE_NAMES`) están atados a un servidor concreto; cámbialos por los tuyos o ignóralos (degradan con elegancia si no existen).
 - Proyecto personal para un servidor privado de amigos; se publica como muestra de la arquitectura.
-
-## 📄 Licencia
-
-[MIT](LICENSE) © MARKITOS-E
