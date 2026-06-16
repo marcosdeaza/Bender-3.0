@@ -1,5 +1,8 @@
 # Bender 3.0
-![Bender Front](https://img.icons8.com/doodle/512/futurama-bender.png)
+<p align="center">
+  <img src="https://img.icons8.com/doodle/512/futurama-bender.png" width="150" alt="Bender"><br>
+  <sub align="center">Este texto estará centrado y más chiquito debajo de Bender</sub>
+</p>
 
 Bot de Discord con **conversación por IA** y un **asistente de voz en tiempo real** pensado para un canal de voz: escucha la llamada, detecta cuándo le hablan a él y responde hablando, en español y de forma natural.
 
