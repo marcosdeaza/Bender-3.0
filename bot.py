@@ -1808,10 +1808,11 @@ async def send_identity_panel(member: discord.Member, channel: discord.TextChann
     save_data(data)
 
 async def _find_bot_message_by_title(channel: discord.TextChannel, title: str) -> discord.Message | None:
-    """Busca rápidamente un embed del bot con título específico."""
+    """Busca rápidamente un embed del bot con título específico (case-insensitive)."""
+    title_lower = title.lower()
     try:
         async for msg in channel.history(limit=30):
-            if msg.author == bot.user and msg.embeds and msg.embeds[0].title == title:
+            if msg.author == bot.user and msg.embeds and msg.embeds[0].title and msg.embeds[0].title.lower() == title_lower:
                 return msg
     except Exception:
         pass
@@ -2655,7 +2656,7 @@ def _build_clip_embed(clips: list, secs: int = None) -> discord.Embed:
             ts = c.get("ts", "")[:16].replace("T", " ")
             lines.append(f"`{i+1}.`  {c.get('name', 'Clip')}  —  {ts}")
         desc = "\n".join(lines)
-    embed = discord.Embed(title="Clips", description=desc, color=0x2B2D31)
+    embed = discord.Embed(title="CLIPS", description=desc, color=0x2B2D31)
     embed.set_footer(text=(f"Duración: {secs}s" if secs else "Duración: 30s"))
     return embed
 
@@ -4003,6 +4004,26 @@ async def _startup_refresh_panels(guild: discord.Guild):
                 continue
             if not member:
                 continue
+            # Limpiar paneles de clips duplicados (dejar solo el último)
+            try:
+                clip_msgs = []
+                async for msg in ch.history(limit=50):
+                    if msg.author == bot.user and msg.embeds and msg.embeds[0].title and msg.embeds[0].title.upper() == "CLIPS":
+                        clip_msgs.append(msg)
+                if len(clip_msgs) > 1:
+                    # Borrar todos menos el último
+                    for old_msg in clip_msgs[1:]:
+                        try:
+                            await old_msg.delete()
+                            await asyncio.sleep(0.2)
+                        except Exception:
+                            pass
+                    # Registrar el último como el oficial
+                    data.setdefault("clip_panel_msg_ids", {})[uid] = clip_msgs[0].id
+                    save_data(data)
+                    print(f"[STARTUP] Limpiados {len(clip_msgs)-1} paneles de clips duplicados en #{ch.name}")
+            except Exception as e:
+                print(f"[STARTUP] Error limpiando clips en #{ch.name}: {e}")
             await send_vault_panel(member, ch)
             await asyncio.sleep(0.5)
             await send_clip_panel(member, ch)
@@ -5873,7 +5894,8 @@ async def _bender_voice_respond(guild, uid, text):
         vc = sess["vc"]
         channel = vc.channel
         miembros = [m.display_name for m in channel.members if not m.bot]
-        is_owner = (data.get("voice_channel_owners", {}).get(str(channel.id)) == uid) or \
+        _stored_owner = data.get("voice_channel_owners", {}).get(str(channel.id))
+        is_owner = (str(_stored_owner) == str(uid) if _stored_owner is not None else False) or \
                    (member.guild_permissions.administrator if member else False)
 
         # 1) ¿Es un comando de control? Para el DUEÑO/admin, corremos el clasificador
@@ -5913,7 +5935,20 @@ async def _bender_voice_respond(guild, uid, text):
             "permite", "deja entrar", "mete a", "invita", "agrega", "añade",
             "quita", "bloquea", "prohibe", "prohíbe", "de la lista",
             "transfiere", "transfier", "admin", "dueño"))
-        if is_owner and _cmd_hint:
+        if _cmd_hint:
+            stored_owner = data.get("voice_channel_owners", {}).get(str(channel.id))
+            print(f"[VOZ-DEBUG] cmd_hint=True is_owner={is_owner} uid={uid} "
+                  f"stored_owner={stored_owner} channel={channel.id} "
+                  f"admin={member.guild_permissions.administrator if member else 'N/A'} "
+                  f"text='{text[:80]}'", flush=True)
+        if _cmd_hint:
+            if not is_owner:
+                # No es owner: avisar por voz de que no tiene permisos
+                await _speak(guild, _clean_for_speech(
+                    f"No eres el dueño de este canal, {member.display_name if member else 'colega'}. "
+                    f"No puedes darme órdenes de control."
+                ))
+                return
             try:
                 ctx = (f"Estáis en un canal de voz llamado '{channel.name}'. "
                        f"Miembros presentes: {miembros}. El usuario habla por voz (puede venir "
@@ -5921,7 +5956,9 @@ async def _bender_voice_respond(guild, uid, text):
                 action_data = await call_ai_action(text, ctx, str(uid))
                 action = action_data.get("action", "desconocido")
                 params = action_data.get("params", {})
-            except Exception:
+                print(f"[VOZ-DEBUG] LLM action={action} params={params}", flush=True)
+            except Exception as e:
+                print(f"[VOZ-DEBUG] call_ai_action exception: {e}", flush=True)
                 action, params = "desconocido", {}
             if action in ("kick", "rename", "modo", "allow", "deny", "transferir"):
                 print(f"[VOZ] Comando de voz: {action} {params}", flush=True)
