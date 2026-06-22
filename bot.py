@@ -62,7 +62,13 @@ def _groq_get_stats():
     try:
         with open(_GROQ_STATS_FILE, "r") as f:
             s = json.load(f)
-        return s if s.get("date") == today else {"date": today, "used": 0}
+        if s.get("date") != today:
+            return {"date": today, "used": 0}
+        # Compatibilidad con formato viejo (seconds_used)
+        if "used" not in s and "seconds_used" in s:
+            s["used"] = s["seconds_used"]
+        s.setdefault("used", 0)
+        return s
     except (FileNotFoundError, json.JSONDecodeError):
         return {"date": today, "used": 0}
 
