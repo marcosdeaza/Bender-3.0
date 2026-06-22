@@ -13,6 +13,7 @@ import time
 import random
 import tempfile
 import shutil
+import unicodedata
 from datetime import datetime, timedelta
 import aiohttp
 
@@ -228,6 +229,12 @@ def _wa_digits(jid) -> str:
     return "".join(c for c in num if c.isdigit())
 
 
+def _wa_clean_name(text: str) -> str:
+    """Normaliza fuentes Unicode raras (negrita/itálica matemática) a texto plano.
+    Ej: '𝐌𝐚𝐫𝐜𝐨𝐬' → 'Marcos'. Necesario porque WhatsApp permite cambiar la fuente del perfil."""
+    return unicodedata.normalize("NFKC", text).strip()
+
+
 def resolve_wa_identity(payload: dict):
     """Identifica a la persona por su teléfono REAL, tolerando LIDs (@lid) que ocultan
     el número. Devuelve (numero, nombre, perfil). El número de verdad llega en
@@ -253,6 +260,11 @@ def resolve_wa_identity(payload: dict):
         for known, nm in WHATSAPP_NAMES.items():
             if nm.lower() in push or push in nm.lower():
                 return known, nm, WHATSAPP_PROFILES.get(known, "")
+    # Fallback: nombres aprendidos automáticamente de pushName anteriores
+    if best:
+        learned_name = data.get("wa_learned_names", {}).get(best, "")
+        if learned_name:
+            return best, learned_name, ""
     return best, "", ""
 
 # =====================================================================
@@ -503,6 +515,7 @@ DEFAULTS = {
     "activity_msg_ids": {},       # message_id del panel actividad por usuario
     "pending_gifts": {},          # regalos pendientes por usuario
     "shared_msg_ids": {},         # message_id de entradas compartidas
+    "wa_learned_names": {},       # pushName limpio auto-aprendido por número de WA
 }
 
 def load_data():
@@ -880,7 +893,16 @@ def start_web_server():
         # resolve_wa_identity prioriza el número real (authorPn) y tolera formatos raros.
         from_number, name, profile = resolve_wa_identity(payload)
         push_name = (payload.get("pushName") or "").strip()
-        print(f"[WA-ID] authorPn={payload.get('authorPn')} author={payload.get('author')} -> num={from_number} name={name or '???'} push={push_name}")
+        push_clean = _wa_clean_name(push_name) if push_name else ""
+        # Auto-aprender: guardar pushName limpio para este número si es la primera vez
+        if from_number and push_clean and from_number not in WHATSAPP_NAMES:
+            learned = data.setdefault("wa_learned_names", {})
+            if learned.get(from_number) != push_clean:
+                learned[from_number] = push_clean
+                save_data(data)
+                if not name:
+                    name = push_clean
+        print(f"[WA-ID] authorPn={payload.get('authorPn')} author={payload.get('author')} -> num={from_number} name={name or '???'} push={push_name} clean={push_clean}")
         chat_id = payload.get("chatId", "")
         is_group = payload.get("isGroup", False)
         is_reply = payload.get("isReply", False)
@@ -892,9 +914,9 @@ def start_web_server():
         if is_group and chat_id != group_id:
             return web.Response(status=200)
 
-        # Si no conocemos el número pero el pushName coincide con un alias, úsalo
-        if not name and push_name:
-            name = push_name
+        # Si no conocemos el número pero el pushName coincide con un alias, úsalo (limpio)
+        if not name and push_clean:
+            name = push_clean
         is_mentioned = payload.get("isMentioned", False)
         msg_lower = body.lower()
 
