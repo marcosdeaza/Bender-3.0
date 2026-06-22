@@ -20,7 +20,153 @@ try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
-    pass  # python-dotenv es opcional; en producción puedes exportar las vars a mano
+    # Carga manual de .env si python-dotenv no está instalado
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if os.path.exists(env_path):
+        with open(env_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    key, _, val = line.partition("=")
+                    key = key.strip()
+                    val = val.strip().strip("'\"")
+                    if key and key not in os.environ:
+                        os.environ[key] = val
+
+# =====================================================================
+#  GROQ WHISPER API — Motor de transcripción (sustituye a Vosk + faster-whisper)
+# =====================================================================
+try:
+    import groq as _groq
+    _GROQ_CLIENT = _groq.Groq(api_key=os.getenv("GROQ_API_KEY")) if os.getenv("GROQ_API_KEY") else None
+except ImportError:
+    _groq = None
+    _GROQ_CLIENT = None
+
+_GROQ_STATS_FILE = os.getenv("GROQ_STATS_FILE", "groq_stats.json")
+_GROQ_DAILY_LIMIT = int(os.getenv("GROQ_DAILY_LIMIT", "7200"))
+
+_WHISPER_HALLUCINATIONS = (
+    "gracias", "suscríbete", "suscribete", "gracias por", "merci",
+    "thank you", "thanks", "please subscribe", "subscribe",
+    "gracias.", "gracias!", "¡gracias!", "¡gracias", "suscríbete.",
+    "suscríbete!", "¡suscríbete!", "¡suscríbete", "gracias por ver",
+    "gracias por escuchar", "no olvides suscribirte",
+    "hola", "adiós", "adios", "bienvenido", "bienvenida",
+)
+
+def _groq_get_stats():
+    today = str(datetime.now().date())
+    try:
+        with open(_GROQ_STATS_FILE, "r") as f:
+            s = json.load(f)
+        return s if s.get("date") == today else {"date": today, "used": 0}
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {"date": today, "used": 0}
+
+def _groq_save_stats(s):
+    with open(_GROQ_STATS_FILE, "w") as f:
+        json.dump(s, f)
+
+def _groq_seconds_remaining():
+    return max(0, _GROQ_DAILY_LIMIT - _groq_get_stats()["used"])
+
+def _groq_limit_reached():
+    return _groq_get_stats()["used"] >= _GROQ_DAILY_LIMIT
+
+def _groq_register_usage(secs):
+    s = _groq_get_stats()
+    s["used"] += max(secs, 1)
+    _groq_save_stats(s)
+
+def _is_hallucination(text):
+    if not text or not text.strip():
+        return True
+    low = text.lower().strip()
+    for h in _WHISPER_HALLUCINATIONS:
+        if low == h or low == h + "!" or low == h + ".":
+            return True
+    if len(low) < 2:
+        return True
+    return False
+
+async def _groq_transcribe(audio_ogg_bytes, duration):
+    """Transcribe audio con Groq Whisper API. Devuelve texto o None."""
+    if _GROQ_CLIENT is None:
+        print("[GROQ] No disponible — falta librería o API key", flush=True)
+        return None
+    if _groq_limit_reached():
+        print("[GROQ] Límite diario alcanzado", flush=True)
+        return None
+    with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
+        tmp.write(audio_ogg_bytes)
+        tmp_path = tmp.name
+    try:
+        with open(tmp_path, "rb") as af:
+            result = _GROQ_CLIENT.audio.transcriptions.create(
+                model="whisper-large-v3",
+                file=af,
+                language="es",
+                response_format="text",
+                temperature=0.0,
+            )
+        _groq_register_usage(duration)
+        if isinstance(result, str):
+            return result.strip()
+        return result.text.strip() if hasattr(result, 'text') else str(result).strip()
+    except Exception as e:
+        print(f"[GROQ] Error: {e}", flush=True)
+        return None
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+
+def _pcm48_to_ogg(pcm: bytes) -> bytes | None:
+    """Convierte PCM 48kHz estéreo a OGG mono 16kHz para Groq Whisper."""
+    if not pcm:
+        return None
+    rem = len(pcm) % 4
+    if rem:
+        pcm = pcm[:len(pcm) - rem]
+    if not pcm:
+        return None
+    tmpdir = tempfile.mkdtemp()
+    try:
+        pcm_path = os.path.join(tmpdir, "in.pcm")
+        with open(pcm_path, "wb") as f:
+            f.write(pcm)
+        ogg_path = os.path.join(tmpdir, "out.ogg")
+        import subprocess
+        subprocess.run([
+            "ffmpeg", "-y", "-f", "s16le", "-ar", "48000", "-ac", "2",
+            "-i", pcm_path, "-ar", "16000", "-ac", "1",
+            "-c:a", "libvorbis", "-q:a", "3", ogg_path
+        ], capture_output=True, timeout=10)
+        if not os.path.exists(ogg_path) or os.path.getsize(ogg_path) == 0:
+            return None
+        with open(ogg_path, "rb") as f:
+            return f.read()
+    except Exception:
+        return None
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+def _has_speech_energy(pcm: bytes, threshold: float = 500.0) -> bool:
+    """VAD simple por energía RMS — filtra silencio antes de gastar en Groq."""
+    try:
+        import audioop
+        rem = len(pcm) % 4
+        if rem:
+            pcm = pcm[:len(pcm) - rem]
+        if not pcm or len(pcm) < 4:
+            return False
+        return audioop.rms(pcm, 2) > threshold
+    except Exception:
+        return False
 
 # =====================================================================
 #  CONFIGURACIÓN  (todo se lee de variables de entorno — ver .env.example)
@@ -5231,77 +5377,25 @@ _tts_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tts")
 # 8-12s de retraso (respuestas tardías). El modelo Kaldi es thread-safe.
 _vosk_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="vosk")
 
-# ─── VOSK: transcriptor PRINCIPAL (rápido y local) ─────────────────────────────
-# vosk-model-small-es (~58MB). Transcribe en ~0.1-0.5s lo que Whisper tiny tarda
-# 4-20s en esta CPU compartida. Completamente offline.
+# ─── Vosk DESACTIVADO — sustituido por Groq Whisper API ────────────────
 _vosk_model = None
 
 def _load_vosk():
-    global _vosk_model
-    # Preferir el modelo GRANDE (es-0.42 sin rescore/rnnlm: 733MB disco, ~830MB RAM,
-    # RTF ~0.44 — misma velocidad que el small y MUCHA mejor transcripción).
-    # OJO: rescore/ y rnnlm/ se borraron a propósito: con ellos el modelo no cabe
-    # en la RAM de este VPS compartido (OOM kill medido). No "restaurarlos".
-    candidates = ("/app/vosk-model-es-0.42", "/app/vosk-model-es")
-    for model_path in candidates:
-        if not os.path.exists(model_path):
-            continue
-        try:
-            import vosk as _vsk
-            _vsk.SetLogLevel(-1)
-            _t0 = time.time()
-            _vosk_model = _vsk.Model(model_path)
-            print(f"[VOZ] Vosk listo ({os.path.basename(model_path)}, {time.time()-_t0:.0f}s de carga).", flush=True)
-            return
-        except Exception as _e:
-            print(f"[VOZ] Vosk error cargando {model_path}: {_e}", flush=True)
-    print("[VOZ] Vosk: ningún modelo disponible — STT usará Whisper.", flush=True)
+    """No-op: Vosk sustituido por Groq Whisper API."""
+    print("[VOZ] Vosk desactivado — usando Groq Whisper API.", flush=True)
 
 def _vosk_transcribe(audio_f32):
-    """Transcribe audio float32 mono 16kHz con Vosk. Muy rápido (50-300ms).
-    Devuelve texto o None si Vosk no disponible (fallback a Whisper)."""
-    if _vosk_model is None:
-        return None
-    try:
-        import vosk as _vsk, json as _j, numpy as _np
-        audio_i16 = (_np.clip(audio_f32, -1.0, 1.0) * 32767).astype(_np.int16)
-        rec = _vsk.KaldiRecognizer(_vosk_model, 16000)
-        rec.AcceptWaveform(audio_i16.tobytes())
-        return _j.loads(rec.FinalResult()).get("text", "")
-    except Exception as _e:
-        print(f"[VOZ] Vosk transcribe error: {_e}", flush=True)
-        return None
+    """No-op: usar Groq Whisper en su lugar."""
+    return None
 
 
-# Gramática restringida para CAZAR el wake word que la transcripción libre se come:
-# fuerza al decodificador a elegir entre estas palabras o [unk]. "bender" no está
-# en el vocabulario del modelo español, así que usamos sus renders típicos.
+# Gramática restringida — ya no se usa con Groq pero se mantiene por compatibilidad
 _VOSK_WAKE_GRAMMAR = '["vender", "venden", "vende", "bende", "tender", "mente", "[unk]"]'
 _VOSK_WAKE_HITS = ("vender", "venden", "vende", "bende", "tender")
 
 def _vosk_wake_check(audio_f32) -> bool:
-    """Segunda oportunidad: decodifica los primeros 3s contra una gramática de
-    variantes de 'Bender'. Solo acepta con confianza alta (≥0.65) — sin esto,
-    el decodificador forzado elige 'vender' para cualquier ruido."""
-    if _vosk_model is None:
-        return False
-    try:
-        import vosk as _vsk, json as _j, numpy as _np
-        head = audio_f32[:int(16000 * 3.0)]
-        if len(head) < int(16000 * 0.3):
-            return False
-        audio_i16 = (_np.clip(head, -1.0, 1.0) * 32767).astype(_np.int16)
-        rec = _vsk.KaldiRecognizer(_vosk_model, 16000, _VOSK_WAKE_GRAMMAR)
-        rec.SetWords(True)
-        rec.AcceptWaveform(audio_i16.tobytes())
-        res = _j.loads(rec.FinalResult())
-        for w in res.get("result", []):
-            if w.get("word") in _VOSK_WAKE_HITS and w.get("conf", 0) >= 0.65:
-                return True
-        return False
-    except Exception as _e:
-        print(f"[VOZ] wake-check error: {_e}", flush=True)
-        return False
+    """No-op: Groq transcribe todo, no necesita gramática restrictiva."""
+    return False
 
 
 _engines_lock = threading.Lock()
@@ -5322,19 +5416,21 @@ def _load_voice_engines():
 def _load_voice_engines_locked():
     global _whisper_model, _whisper_tiny, _whisper_base, _piper_voice
     try:
-        from faster_whisper import WhisperModel
         from piper import PiperVoice
-        print("[VOZ] Cargando motores (vosk + piper + whisper-respaldo)...", flush=True)
-        # VOSK PRIMERO: ahora es el transcriptor PRINCIPAL (100-500ms/frase).
-        # Whisper tiny queda de respaldo para audio corto que Vosk no pilló.
+        print("[VOZ] Cargando motores (groq whisper + piper)...", flush=True)
+        # Vosk desactivado — Groq Whisper es el motor principal
         _load_vosk()
+        # Piper TTS (voz local en español)
         _piper_voice = PiperVoice.load(PIPER_PATH)
-        # cpu_threads=2: ÓPTIMO medido en esta vCPU (1h=1.70s, 2h=1.20s, 4h=1.61s).
-        # Más hilos = sobre-suscripción = MÁS lento. No subir de 2.
-        _whisper_base = WhisperModel("tiny", device="cpu", compute_type="int8", cpu_threads=2)
-        _whisper_tiny = _whisper_base
-        _whisper_model = _whisper_base
-        print("[VOZ] Motores de voz listos (vosk principal + tiny respaldo).", flush=True)
+        # faster-whisper desactivado — Groq Whisper lo sustituye
+        _whisper_base = None
+        _whisper_tiny = None
+        _whisper_model = None
+        if _GROQ_CLIENT:
+            print("[VOZ] Groq Whisper API activo como motor STT.", flush=True)
+        else:
+            print("[VOZ] WARNING: Groq no disponible — falta GROQ_API_KEY.", flush=True)
+        print("[VOZ] Motores de voz listos (groq whisper + piper tts).", flush=True)
         return True
     except Exception as e:
         print(f"[VOZ] Error cargando motores: {e}", flush=True)
@@ -5652,13 +5748,8 @@ async def _voice_listen_loop(guild):
 
 
 async def _handle_voice_utterance(guild, uid, pcm, _queued_at: float = 0.0):
-    """PIPELINE NUEVO (Vosk-primero): cada frase se transcribe AL INSTANTE con
-    Vosk (100-500ms en esta CPU). Nada de flag global de ocupado, nada de colas
-    de PCM, nada de respuestas a audio de hace 30s. Whisper tiny queda SOLO como
-    respaldo cuando Vosk devuelve vacío en un audio corto (posible "¡Bender!"
-    flojo), y solo si el hilo de Whisper está libre — nunca encola.
-    Durante speaking también se transcribe (es barato); si va dirigido a Bender,
-    el TEXTO (no el PCM) se difiere hasta que termine de hablar."""
+    """PIPELINE GROQ: transcribe con Groq Whisper API, detecta wake word, responde.
+    Sustituye el pipeline Vosk-primero. Groq transcribe todo en una sola llamada."""
     global _utt_counter
     sess = voice_sessions.get(guild.id)
     if not sess or not sess.get("active"):
@@ -5676,104 +5767,44 @@ async def _handle_voice_utterance(guild, uid, pcm, _queued_at: float = 0.0):
                 _wf.writeframes(pcm)
         except Exception:
             pass
-    # Tope 10s: con el modelo grande (RTF ~0.44) una frase de 15s costaba 6.6s
-    # de decodificación y atascaba la cola. 10s cubre cualquier orden razonable.
-    if len(pcm) > int(48000 * 2 * 2 * 10):
+    # Tope 15s de audio
+    if len(pcm) > int(48000 * 2 * 2 * 15):
         if VOICE_DIAG:
             print(f"[VOZ-SKIP] larga ({len(pcm)//(48000*2*2)}s), descartada", flush=True)
         return
-    loop = asyncio.get_event_loop()
-    audio = await loop.run_in_executor(_vosk_executor, _pcm48_to_whisper, pcm)
-    if audio is None or len(audio) < int(16000 * 0.20):   # 200ms mínimo
+    # VAD: filtrar silencio antes de gastar en Groq
+    if not _has_speech_energy(pcm):
         return
     _tt = time.time()
-    SR = 16000
     in_window = time.time() < _convo_windows.get((guild.id, uid), 0)
-    # ── ETAPA 1: solo la CABEZA (3s) ─────────────────────────────────────────
-    # El 95% del audio es charla ambiente. Decidir con los primeros 3s cuesta
-    # un tercio que transcribirlo todo → la cola no se atasca con 4-5 hablando.
-    # ANTI-RANCIO: si el job espera >6s en cola, se descarta SIN decodificar.
-    HEAD = int(SR * 3.0)
-    head_audio = audio[:HEAD]
-    head_txt = None
-    if _vosk_model is not None:
-        _deadline = time.time() + 6.0
-        def _vosk_head_job():
-            if time.time() > _deadline:
-                return "__STALE__"
-            return _vosk_transcribe(head_audio)
-        try:
-            head_txt = await asyncio.wait_for(
-                loop.run_in_executor(_vosk_executor, _vosk_head_job),
-                timeout=14.0)
-        except asyncio.TimeoutError:
-            head_txt = None
-        if head_txt == "__STALE__":
-            if VOICE_DIAG:
-                print("[VOZ-STALE] cola STT atascada, audio viejo descartado", flush=True)
-            return
-    head_txt = (head_txt or "").strip()
-    wake = bool(head_txt) and _has_wake_word(head_txt)
-    candidate = wake or in_window
-    # ── SEGUNDA OPORTUNIDAD: gramática restringida sobre la cabeza ───────────
-    # Vosk a veces funde "Bender" en otra palabra ("el") o se lo come del todo.
-    if not candidate and _vosk_model is not None:
-        try:
-            if await asyncio.wait_for(
-                    loop.run_in_executor(_vosk_executor, _vosk_wake_check, head_audio),
-                    timeout=5.0):
-                candidate = True
-                wake = True
-                if VOICE_DIAG:
-                    print(f"[VOZ-WAKE] gramática cazó el nombre (cabeza: '{head_txt}')", flush=True)
-        except asyncio.TimeoutError:
-            pass
-    if not candidate:
-        if VOICE_DIAG and head_txt:
-            member = guild.get_member(uid)
-            print(f"[VOZ] ({time.time()-_tt:.1f}s ·ambiente) {member.display_name if member else uid}: '{head_txt}'", flush=True)
+    # ── CONVERTIR PCM a OGG para Groq ──────────────────────────────────────
+    loop = asyncio.get_event_loop()
+    audio_ogg = await loop.run_in_executor(_vosk_executor, _pcm48_to_ogg, pcm)
+    if not audio_ogg:
         return
-    # ── ETAPA 2: frase completa (solo candidatos — pocos por minuto) ─────────
-    text = head_txt
-    if len(audio) > HEAD and _vosk_model is not None:
-        try:
-            _full = await asyncio.wait_for(
-                loop.run_in_executor(_vosk_executor, _vosk_transcribe, audio),
-                timeout=14.0)
-        except asyncio.TimeoutError:
-            _full = None
-        if _full:
-            text = _full.strip()
+    duration = len(pcm) / (48000 * 2 * 2)
+    # ── TRANSCRIBIR CON GROQ WHISPER ───────────────────────────────────────
+    text = await _groq_transcribe(audio_ogg, duration)
+    text = (text or "").strip()
+    # Filtrar alucinaciones de Whisper
+    if _is_hallucination(text):
+        if VOICE_DIAG:
+            member = guild.get_member(uid)
+            print(f"[VOZ] alucinación filtrada: '{text}'", flush=True)
+        return
     _letters = re.sub(r"[^a-záéíóúñ]", "", text.lower())
-    wake = wake or (bool(text) and _has_wake_word(text))
-    # Ventana de conversación: solo con SUSTANCIA (≥4 letras). Sin esto, un "ah"
-    # o "sí" suelto dentro de la ventana iba al LLM y soltaba barbaridades.
+    if len(_letters) < 2:
+        return
+    # ── DETECTAR WAKE WORD ─────────────────────────────────────────────────
+    wake = bool(text) and _has_wake_word(text)
     addressed = wake or (in_window and len(_letters) >= 4)
-    # ── RESPALDO Whisper SOLO PARA CONTENIDO: cuando SABEMOS que va dirigido
-    #    (gramática cazó el nombre) pero Vosk no sacó texto utilizable.
-    if (addressed and not text and _whisper_base is not None
-            and not _whisper_running and len(audio) / SR <= 6.0):
-        try:
-            _wtxt = await asyncio.wait_for(
-                loop.run_in_executor(_stt_executor, _transcribe, audio),
-                timeout=8.0)
-        except asyncio.TimeoutError:
-            _wtxt = None
-        _wtxt = (_wtxt or "").strip()
-        if _wtxt:
-            text = _wtxt
-            _letters = re.sub(r"[^a-záéíóúñ]", "", text.lower())
-    # Wake cazado pero sin contenido transcrito: que el bot pregunte, no que calle.
-    if addressed and len(_letters) < 2 and len(text) < 2:
-        text = "Bender"
-    if VOICE_DIAG and (text or addressed):
+    if VOICE_DIAG:
         member = guild.get_member(uid)
         tag = "✓dirigido" if addressed else "·ambiente"
         print(f"[VOZ] ({time.time()-_tt:.1f}s {tag}) {member.display_name if member else uid}: '{text}'", flush=True)
-    if not addressed or len(text) < 2:
+    if not addressed:
         return
-    # ── ANTI-REPETICIÓN: la gente repite la orden mientras Bender va lento;
-    #    sin esto contestaba 3-4 veces a la misma frase repetida.
+    # ── ANTI-REPETICIÓN ────────────────────────────────────────────────────
     _akey = (guild.id, uid)
     _prev = _last_addressed.get(_akey)
     _nowa = time.time()

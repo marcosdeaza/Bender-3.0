@@ -3,10 +3,14 @@ discord.py>=2.7.1
 aiohttp>=3.13
 python-dotenv>=1.0
 
-# Voz — reconocimiento (STT), wake word y síntesis (TTS)
+# Voz — recepción de audio de Discord + descifrado E2E (DAVE)
 discord-ext-voice-recv>=0.5.2a0
-vosk>=0.3.45
-faster-whisper>=1.2
+davey>=0.1
+
+# STT — transcripción con Groq Whisper API (sustituye a Vosk + faster-whisper)
+groq>=0.4
+
+# TTS — síntesis de voz local con Piper
 piper-tts>=1.4
 numpy>=1.26
 

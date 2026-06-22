@@ -5,6 +5,7 @@
 # Runtime data (estado del bot, NO subir)
 bender_data.json
 *.json.bak*
+groq_stats.json
 spotify_creds.json
 yt_cookies.txt
 
