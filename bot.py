@@ -319,7 +319,7 @@ Estados de ánimo según la hora:
 - Tarde (12-20): Tu mejor momento, animado y sarcástico.
 - Noche (20-00): Filosófico y tranquilo.
 
-UBICACIÓN POR DEFECTO en búsquedas: si te preguntan por el TIEMPO/clima/lluvia o NOTICIAS y no dicen dónde, asume {DEFAULT_CITY}.
+UBICACIÓN POR DEFECTO: si te preguntan por el TIEMPO/clima/lluvia o NOTICIAS LOCALES y no dicen dónde, asume {DEFAULT_CITY}. PERO SOLO para eso. Si te preguntan por un juego, serie, película, persona, evento, dato histórico o cualquier otra cosa, NO añadas Valencia ni ninguna ciudad: busca tal cual.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CONOCIMIENTO DEL SERVER — úsalo cuando alguien pregunte dudas, pida ayuda o quiera saber cómo funciona algo
@@ -1105,7 +1105,6 @@ WEB_SEARCH_TRIGGERS = (
     "quién ganó", "quien gano", "resultado", "marcador", "partido", "champions", "liga",
     "estrena", "estreno", "se estrena", "lanzamiento", "cuándo sale", "cuando sale", "salió ya", "salio ya",
     "qué pasó", "que paso", "qué ha pasado", "que ha pasado", "ahora mismo en",
-    "2024", "2025", "2026", "2027",
 )
 
 
@@ -5754,8 +5753,8 @@ async def _voice_listen_loop(guild):
                 busy_since = sess.get("_busy_since")
                 if not busy_since:
                     sess["_busy_since"] = time.time()
-                elif time.time() - busy_since > 30:
-                    print("[VOZ] Auto-reparando busy trabado (>30s).", flush=True)
+                elif time.time() - busy_since > 60:
+                    print("[VOZ] Auto-reparando busy trabado (>60s).", flush=True)
                     sess["busy"] = False
                     sess["speaking"] = False
                     sess.pop("_busy_since", None)
@@ -5904,7 +5903,7 @@ async def _handle_voice_utterance(guild, uid, pcm, _queued_at: float = 0.0):
         print(f"[VOZ] Diferida (busy/speaking): '{text}'", flush=True)
         return
     try:
-        await asyncio.wait_for(_bender_voice_respond(guild, uid, text), timeout=65.0)
+        await asyncio.wait_for(_bender_voice_respond(guild, uid, text), timeout=90.0)
     except asyncio.TimeoutError:
         print("[VOZ] respond >30s, liberando (anti-cuelgue).", flush=True)
         _s = voice_sessions.get(guild.id)
@@ -6032,7 +6031,8 @@ async def _bender_voice_respond(guild, uid, text):
             "4. Si algo viene MUY roto de la transcripción y no tiene NINGÚN sentido, di solo '¿qué? repite'. Pero si "
             "se pilla la idea aunque esté regular, RESPONDE — no te cierres por una palabra mal oída.\n"
             "5. 1 o 2 frases cortas habladas (máx ~25 palabras), sin markdown ni listas. Es una llamada: fluido y natural.\n"
-            f"6. BÚSQUEDAS: TIEMPO/clima/lluvia o NOTICIAS sin lugar = **{DEFAULT_CITY}**; "
+            f"6. BÚSQUEDAS: solo TIEMPO/clima/lluvia o NOTICIAS sin lugar = **{DEFAULT_CITY}**. "
+            "Para TODO lo demás (juegos, series, películas, personas, datos, historia), busca tal cual SIN añadir ciudad. "
             "precios de juegos, búscalos. Da el dato concreto y corto."
         )
         web = needs_web_search(text)  # call_ai limpia la consulta (quita Bender, fija lugar)
@@ -6086,9 +6086,9 @@ async def _speak(guild, text):
             _dm = asyncio.Event()
             _mx.set_tts(discord.FFmpegPCMAudio(path), _dm)
             try:
-                await asyncio.wait_for(_dm.wait(), timeout=35.0)
+                await asyncio.wait_for(_dm.wait(), timeout=60.0)
             except asyncio.TimeoutError:
-                pass
+                print("[VOZ] Timeout mixer esperando audio TTS.", flush=True)
         finally:
             sess["speaking"] = False
             sess["buffers"].clear()
@@ -6108,9 +6108,9 @@ async def _speak(guild, text):
             loop.call_soon_threadsafe(done_event.set)
         src = discord.FFmpegPCMAudio(path)
         vc.play(src, after=_after)
-        # Esperar hasta que termine el audio (máx 35s; respuestas de 45 tokens ≈ 12s)
+        # Esperar hasta que termine el audio (máx 60s; respuestas largas o búsquedas)
         try:
-            await asyncio.wait_for(done_event.wait(), timeout=35.0)
+            await asyncio.wait_for(done_event.wait(), timeout=60.0)
         except asyncio.TimeoutError:
             print("[VOZ] Timeout esperando audio, liberando speaking.", flush=True)
             sess["speaking"] = False
