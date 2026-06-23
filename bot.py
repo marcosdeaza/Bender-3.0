@@ -56,6 +56,8 @@ _WHISPER_HALLUCINATIONS = (
     "suscríbete!", "¡suscríbete!", "¡suscríbete", "gracias por ver",
     "gracias por escuchar", "no olvides suscribirte",
     "hola", "adiós", "adios", "bienvenido", "bienvenida",
+    "subtítulos", "subtitulos", "amara.org", "www.", ".com",
+    "hablan con el bot bender", "dicen: bender", "oye bender, eh bender",
 )
 
 def _groq_get_stats():
@@ -92,27 +94,34 @@ def _is_hallucination(text):
     if not text or not text.strip():
         return True
     low = text.lower().strip()
-    for h in _WHISPER_HALLUCINATIONS:
-        if low == h or low == h + "!" or low == h + ".":
-            return True
     if len(low) < 2:
         return True
+    for h in _WHISPER_HALLUCINATIONS:
+        if low == h or low == h + "!" or low == h + "." or h in low:
+            return True
     return False
+
+_GROQ_429_COUNT = 0
+_GROQ_429_PAUSE_UNTIL = 0.0
 
 async def _groq_transcribe(audio_ogg_bytes, duration):
     """Transcribe audio con Groq Whisper API. Devuelve texto o None."""
+    global _GROQ_429_COUNT, _GROQ_429_PAUSE_UNTIL
     if _GROQ_CLIENT is None:
         print("[GROQ] No disponible — falta librería o API key", flush=True)
         return None
     if _groq_limit_reached():
         print("[GROQ] Límite diario alcanzado", flush=True)
         return None
+    # Circuit breaker: si hemos tenido muchos 429, pausar
+    if time.time() < _GROQ_429_PAUSE_UNTIL:
+        return None
     with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
         tmp.write(audio_ogg_bytes)
         tmp_path = tmp.name
     try:
         loop = asyncio.get_event_loop()
-        for intento in range(2):
+        for intento in range(3):
             try:
                 with open(tmp_path, "rb") as af:
                     result = await loop.run_in_executor(
@@ -126,14 +135,28 @@ async def _groq_transcribe(audio_ogg_bytes, duration):
                             timeout=15,
                         )
                     )
+                _GROQ_429_COUNT = 0  # Reset tras éxito
                 _groq_register_usage(duration)
                 if isinstance(result, str):
                     return result.strip()
                 return result.text.strip() if hasattr(result, 'text') else str(result).strip()
             except Exception as e:
-                print(f"[GROQ] Error (intento {intento+1}): {e}", flush=True)
-                if intento == 0:
-                    await asyncio.sleep(0.5)
+                err_str = str(e)
+                is_429 = "429" in err_str or "rate_limit" in err_str.lower()
+                if is_429:
+                    _GROQ_429_COUNT += 1
+                    # Backoff exponencial: 2s, 4s, 8s
+                    wait = 2 ** (intento + 1)
+                    print(f"[GROQ] 429 rate limit (intento {intento+1}), esperando {wait}s", flush=True)
+                    if _GROQ_429_COUNT >= 3:
+                        _GROQ_429_PAUSE_UNTIL = time.time() + 30
+                        print(f"[GROQ] Circuit breaker: pausando 30s por 429s consecutivos", flush=True)
+                        return None
+                    await asyncio.sleep(wait)
+                else:
+                    print(f"[GROQ] Error (intento {intento+1}): {e}", flush=True)
+                    if intento == 0:
+                        await asyncio.sleep(0.5)
         return None
     except Exception as e:
         print(f"[GROQ] Error fatal: {e}", flush=True)
@@ -224,11 +247,14 @@ WHATSAPP_BRIDGE_URL = os.getenv("WHATSAPP_BRIDGE_URL", "http://localhost:3000")
 #   WHATSAPP_PROFILES = {"34600000000": "Alias. Breve descripción para el contexto del bot."}
 #   WHATSAPP_TO_DISCORD = {"34600000000": 123456789012345678}   # número -> ID de Discord
 #   WHATSAPP_NAMES = {"34600000000": "Alias"}
-WHATSAPP_PROFILES = {}
+WHATSAPP_PROFILES = {
+}
 
-WHATSAPP_TO_DISCORD = {}
+WHATSAPP_TO_DISCORD = {
+}
 
-WHATSAPP_NAMES = {}
+WHATSAPP_NAMES = {
+}
 
 
 def _wa_digits(jid) -> str:
@@ -285,7 +311,11 @@ def resolve_wa_identity(payload: dict):
 # alias en minúsculas; el valor es texto libre que se inyecta en el system prompt.
 # Ejemplo:
 #   MEMBER_PROFILES = {"alias": "También llamado X. Aficiones, manías, rollito..."}
-MEMBER_PROFILES = {}
+MEMBER_PROFILES = {
+}
+
+MEMBER_ID_MAP = {
+}
 
 SERVER_NAME = os.getenv("SERVER_NAME", "el server")
 
@@ -547,11 +577,17 @@ _save_lock = threading.Lock()
 def save_data(d):
     # Lock entre hilos: el webhook de WhatsApp y el bot de Discord corren en hilos
     # distintos y ambos guardan. El lock evita que se pisen y corrompan el JSON.
-    # (DATA_FILE es un bind-mount; no se puede usar rename atómico: da EBUSY.)
     try:
         with _save_lock:
-            with open(DATA_FILE, 'w') as f:
+            tmp_path = DATA_FILE + ".tmp"
+            with open(tmp_path, 'w') as f:
                 json.dump(d, f, indent=4, ensure_ascii=False)
+            import shutil
+            shutil.copy2(tmp_path, DATA_FILE)
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
     except Exception as e:
         print(f"[ERROR] Guardando JSON: {e}")
 
@@ -577,31 +613,16 @@ current_rec_ch: dict = {}
 # =====================================================================
 #  ROLES Y EMOJIS
 # =====================================================================
-# Roles de color por reacción de emoji. EJEMPLO de muestra con emojis Unicode:
-# cámbialos por los tuyos. La clave es el emoji (Unicode como "🔥" o uno
-# personalizado en formato "<:nombre:ID>") y el valor es el ID del rol a otorgar.
+# Roles de color por reacción de emoji.
 COLOR_ROLES = {
-    "🔥": 0,   # pon aquí el ID del rol
-    "💧": 0,
-    "🌿": 0,
-    "❄️": 0,
-    "⚡": 0,
-    "🩸": 0,
-    "👑": 0,
-    "🎭": 0,
+    # Rellena con tus emojis y role IDs reales del servidor
+    # "🔥": 123456789012345678,
 }
 EMOJI_TO_ROLE = {e: r for e, r in COLOR_ROLES.items() if r}
 
 # Nombre/descripción que se muestra en el panel de identidad para cada emoji.
 ROLE_NAMES = {
-    "🔥": "**FUEGO** ─ Pasión ardiente",
-    "💧": "**AGUA** ─ Calma fluida",
-    "🌿": "**NATURA** ─ Mente expandida",
-    "❄️": "**HIELO** ─ Frialdad absoluta",
-    "⚡": "**TRUENO** ─ Poder eléctrico",
-    "🩸": "**SANGRE** ─ Oscuridad",
-    "👑": "**REY** ─ Realeza suprema",
-    "🎭": "**MÁSCARA** ─ Doble cara",
+    # "🔥": "**FUEGO** ─ Pasión ardiente",
 }
 
 # =====================================================================
@@ -1828,12 +1849,28 @@ async def send_identity_panel(member: discord.Member, channel: discord.TextChann
     embed.add_field(name="DISPONIBLES", value="\n".join(legend) if legend else "—", inline=False)
     embed.set_footer(text="Reacciona para cambiar · Se actualiza solo")
 
-    msg = await channel.send(embed=embed)
-    for emoji in COLOR_ROLES:
+    # Buscar panel existente por ID guardado o por título
+    uid = str(member.id)
+    existing_msg = None
+    saved_mid = data.get("user_channels", {}).get(uid, {}).get("color_msg_id") if isinstance(data.get("user_channels", {}).get(uid), dict) else None
+    if saved_mid:
         try:
-            await msg.add_reaction(emoji)
+            existing_msg = await channel.fetch_message(saved_mid)
         except Exception:
-            pass
+            existing_msg = None
+    if not existing_msg:
+        existing_msg = await _find_bot_message_by_title(channel, "SELECCIÓN DE IDENTIDAD")
+
+    if existing_msg:
+        await existing_msg.edit(embed=embed)
+        msg = existing_msg
+    else:
+        msg = await channel.send(embed=embed)
+        for emoji in COLOR_ROLES:
+            try:
+                await msg.add_reaction(emoji)
+            except Exception:
+                pass
 
     data["user_channels"][str(member.id)]["color_msg_id"] = msg.id
     save_data(data)
@@ -5527,15 +5564,6 @@ def _pcm48_to_whisper(pcm: bytes):
         return _np.zeros(0, dtype=_np.float32)
 
 
-# Frases típicas que Whisper "alucina" sobre silencio/ruido — a ignorar.
-_WHISPER_HALLUCINATIONS = (
-    "subtítulos", "subtitulos", "amara.org", "gracias por ver", "suscríbete",
-    "suscribete", "www.", ".com", "¡gracias!",
-    # el initial_prompt a veces se cuela como transcripción: filtrarlo
-    "hablan con el bot bender", "dicen: bender", "oye bender, eh bender",
-)
-
-
 def _transcribe_with(model, audio) -> str:
     global _whisper_running
     _whisper_running = True
@@ -6297,6 +6325,99 @@ _POT_SERVER_JS = "/app/bgutil/server/build/main.js"
 # el fichero, ni se intenta YouTube en links (sería 15s de espera para nada).
 _YT_COOKIES = "/app/yt_cookies.txt"
 
+# ── SOUNDCLOUD ──────────────────────────────────────────────────────────────
+_SC_CLIENT_ID = None
+_SC_CLIENT_ID_TS = 0
+
+def _sc_get_client_id():
+    """Scrapea el client_id de SoundCloud desde los JS bundles. Cachea 1h."""
+    global _SC_CLIENT_ID, _SC_CLIENT_ID_TS
+    import time as _t
+    if _SC_CLIENT_ID and _t.time() - _SC_CLIENT_ID_TS < 3600:
+        return _SC_CLIENT_ID
+    try:
+        from curl_cffi import requests as _sc_req
+        import re as _re
+        r = _sc_req.get('https://soundcloud.com', impersonate='chrome131', timeout=10)
+        scripts = _re.findall(r'src="([^"]+\.js)"', r.text)
+        for js_url in scripts[:10]:
+            full = js_url if js_url.startswith('http') else 'https://soundcloud.com' + js_url
+            try:
+                r2 = _sc_req.get(full, impersonate='chrome131', timeout=8)
+                for pat in [r'client_id="([a-zA-Z0-9]{32})"', r'client_id:"([a-zA-Z0-9]{32})"']:
+                    cids = _re.findall(pat, r2.text)
+                    if cids:
+                        _SC_CLIENT_ID = cids[0]
+                        _SC_CLIENT_ID_TS = _t.time()
+                        return _SC_CLIENT_ID
+            except Exception:
+                continue
+    except Exception:
+        pass
+    # Fallback: client_id público (visible en el JS de soundcloud.com)
+    return None
+
+def _sc_search(query, limit=5):
+    """Busca canciones en SoundCloud. Devuelve lista de tracks."""
+    from curl_cffi import requests as _sc_req
+    import urllib.parse as _up
+    cid = _sc_get_client_id()
+    if not cid:
+        return []
+    try:
+        url = f'https://api-v2.soundcloud.com/search/tracks?q={_up.quote(query)}&limit={limit}&client_id={cid}'
+        r = _sc_req.get(url, impersonate='chrome131', timeout=10)
+        if r.status_code != 200:
+            return []
+        return r.json().get('collection', [])
+    except Exception:
+        return []
+
+def _sc_stream_url(track):
+    """Obtiene la URL de stream de un track de SoundCloud."""
+    from curl_cffi import requests as _sc_req
+    cid = _sc_get_client_id()
+    if not cid:
+        return None
+    transcodings = track.get('media', {}).get('transcodings', [])
+    for tr in transcodings:
+        if tr.get('format', {}).get('protocol') == 'progressive':
+            turl = tr['url'] + f'?client_id={cid}'
+            try:
+                r = _sc_req.get(turl, impersonate='chrome131', timeout=10)
+                if r.status_code == 200:
+                    u = r.json().get('url', '')
+                    if u:
+                        return u
+            except Exception:
+                pass
+    for tr in transcodings:
+        if tr.get('format', {}).get('protocol') == 'hls':
+            mime = tr.get('format', {}).get('mime_type', '')
+            if 'mp4' in mime or 'mpegurl' in mime:
+                turl = tr['url'] + f'?client_id={cid}'
+                try:
+                    r = _sc_req.get(turl, impersonate='chrome131', timeout=10)
+                    if r.status_code == 200:
+                        u = r.json().get('url', '')
+                        if u:
+                            return u
+                except Exception:
+                    pass
+    return None
+
+def _sc_resolve(query):
+    """Busca en SoundCloud y devuelve (url, title, artist, art) o None."""
+    tracks = _sc_search(query, limit=5)
+    if not tracks:
+        return None
+    for t in tracks:
+        stream = _sc_stream_url(t)
+        if stream:
+            art = t.get('artwork_url') or (t.get('user', {}).get('avatar_url'))
+            return (stream, t.get('title', '?'), t.get('user', {}).get('username', '?'), art)
+    return None
+
 
 def _audius_search(query, strict=False):
     """Busca una canción en Audius por texto. Devuelve (url, title, artist, art) o None."""
@@ -6584,41 +6705,38 @@ async def _music_resolve(query):
                 tr.get("title", "?"), (tr.get("user") or {}).get("name", "?"), _art(tr))
 
     if is_link:
-        # LINK: el usuario quiere ESE tema. Intento YouTube (audio exacto).
-        # yt-dlp con player_client=android_vr,tv suele saltarse el muro anti-bot.
-        if yt_link:
-            yt_target = q
-        elif clean_q and clean_q != q:
-            yt_target = "ytsearch1:" + clean_q
-        else:
-            yt_target = None
-        if yt_target:
-            print(f"[MUSIC] buscando en YT: {yt_target[:80]!r}", flush=True)
+        # LINK: YouTube falla (PO Token). Usar el título del oEmbed y buscar en SoundCloud + Audius.
+        if clean_q and clean_q != q:
+            print(f"[MUSIC] Link → buscando: {clean_q!r}", flush=True)
+            # 1. SoundCloud (tiene música mainstream)
             try:
-                res = await loop.run_in_executor(None, _ytdlp_resolve, yt_target)
+                res = await loop.run_in_executor(None, _sc_resolve, clean_q)
             except Exception:
                 res = None
             if res:
-                print(f"[MUSIC] resuelto por YouTube: {res[1]}", flush=True)
+                print(f"[MUSIC] resuelto por SoundCloud: {res[1]}", flush=True)
                 return res
-        # YouTube falló (IP vetada sin cookies). Fallback: buscar el título en Audius.
-        # clean_q ya tiene el título del link sacado vía oEmbed.
-        if clean_q and clean_q != q:
-            print(f"[MUSIC] YouTube falló, buscando en Audius: {clean_q!r}", flush=True)
+            # 2. Audius fallback
             try:
                 res = await loop.run_in_executor(None, _audius_search, clean_q, False)
             except Exception:
                 res = None
             if res:
-                print(f"[MUSIC] resuelto por Audius (fallback de link): {res[1]}", flush=True)
+                print(f"[MUSIC] resuelto por Audius: {res[1]}", flush=True)
                 return res
-            return None, f"No he podido sacar ese link (YouTube me bloquea desde el server y no está en Audius). Prueba a decirme el nombre de la canción.", None, None
+            return None, "No he encontrado esa canción ni en SoundCloud ni en Audius. Prueba con el nombre.", None, None
         return None, "Ese link no lo puedo sacar. Dime el nombre y lo busco.", None, None
 
-    # TEXTO: Audius directo (rápido). YouTube por texto está casi siempre bloqueado y
-    # metería 10-15s de espera por nada, así que no lo intentamos aquí.
+    # TEXTO: SoundCloud primero (mainstream), Audius segundo (independiente)
     try:
-        res = await loop.run_in_executor(None, _search, False)
+        res = await loop.run_in_executor(None, _sc_resolve, clean_q)
+    except Exception:
+        res = None
+    if res:
+        print(f"[MUSIC] resuelto por SoundCloud: {res[1]}", flush=True)
+        return res
+    try:
+        res = await loop.run_in_executor(None, _audius_search, clean_q, False)
     except Exception:
         return None, "No he podido buscar la canción.", None, None
     if not res:
@@ -6754,28 +6872,22 @@ async def _dj_loop(guild):
                 # Resolución LAZY: pistas de playlists de Spotify se resuelven justo
                 # antes de reproducirse. Intento YouTube, fallback Audius.
                 if nxt.get("lazy") and not nxt.get("url"):
+                    # SoundCloud primero, Audius fallback
                     try:
                         res = await asyncio.get_event_loop().run_in_executor(
-                            None, _ytdlp_resolve, "ytsearch1:" + nxt["query"])
+                            None, _sc_resolve, nxt["query"])
                         if res:
                             nxt["url"], nxt["title"], nxt["artist"], nxt["art"] = res
                         else:
-                            # Fallback: buscar en Audius
-                            print(f"[DJ] YouTube falló, intentando Audius: {nxt['query']}", flush=True)
-                            try:
-                                ares = await asyncio.get_event_loop().run_in_executor(
-                                    None, _audius_search, nxt["query"])
-                                if ares:
-                                    nxt["url"], nxt["title"], nxt["artist"], nxt["art"] = ares
-                                else:
-                                    print(f"[DJ] Sin resultado en YT ni Audius: {nxt['query']}", flush=True)
-                                    continue
-                            except Exception as ae:
-                                print(f"[DJ] Audius fallback error: {ae}", flush=True)
+                            ares = await asyncio.get_event_loop().run_in_executor(
+                                None, _audius_search, nxt["query"])
+                            if ares:
+                                nxt["url"], nxt["title"], nxt["artist"], nxt["art"] = ares
+                            else:
+                                print(f"[DJ] Sin resultado SC/Audius: {nxt['query']}", flush=True)
                                 continue
                     except Exception as e:
                         print(f"[DJ] Lazy resolve error: {e}", flush=True)
-                        # Intentar Audius también si YouTube exception
                         try:
                             ares = await asyncio.get_event_loop().run_in_executor(
                                 None, _audius_search, nxt["query"])

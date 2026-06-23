@@ -15,5 +15,10 @@ piper-tts>=1.4
 numpy>=1.26
 
 # audioop se eliminó de la stdlib en Python 3.13; este backport lo restituye.
-# Inofensivo en versiones anteriores.
 audioop-lts>=0.2; python_version >= "3.13"
+
+# Música — SoundCloud API (bypass TLS fingerprinting) + Audius fallback
+curl_cffi>=0.7
+
+# YouTube (opcional — yt-dlp para links de YouTube, requiere PO Token en IPs vetadas)
+yt-dlp>=2024.1
