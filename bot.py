@@ -226,10 +226,8 @@ WHATSAPP_BRIDGE_URL = os.getenv("WHATSAPP_BRIDGE_URL", "http://localhost:3000")
 #   WHATSAPP_NAMES = {"34600000000": "Alias"}
 WHATSAPP_PROFILES = {}
 
-# Mapeo de número de WhatsApp a ID de Discord para control cross-plataforma
 WHATSAPP_TO_DISCORD = {}
 
-# Nombre simple por número para forzar identificación correcta en WhatsApp
 WHATSAPP_NAMES = {}
 
 
@@ -6045,11 +6043,11 @@ async def _bender_voice_respond(guild, uid, text):
         try:
             if web:
                 # Buscar EN PARALELO mientras suelta un "espera que lo busco" -> sin mudez
-                search_task = asyncio.create_task(call_ai(msgs, max_tokens=50, use_web=True))
+                search_task = asyncio.create_task(call_ai(msgs, max_tokens=120, use_web=True))
                 await _speak(guild, search_filler())   # se reproduce mientras busca
                 reply = await search_task
             else:
-                reply = await call_ai(msgs, max_tokens=45, use_web=False)
+                reply = await call_ai(msgs, max_tokens=80, use_web=False)
         except Exception:
             reply = error_fallback()
         _llm_dt = time.time() - _tllm
