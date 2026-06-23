@@ -1069,18 +1069,18 @@ def start_web_server():
 
 # Mapea el ID de Discord de cada miembro con su clave en MEMBER_PROFILES, para que
 # el bot reconozca a cada persona de forma fiable por su ID (no solo por el nombre).
-# Vacío por defecto. Ejemplo:  {"123456789012345678": "alias"}
-MEMBER_ID_MAP = {}
+# La definición con los datos reales está arriba (junto a MEMBER_PROFILES).
+# NO redefinir aquí vacío o pisa la buena.
 
 def detect_profile(display_name: str, user_id: str = None) -> str | None:
-    # Primero por ID exacto
-    if user_id and user_id in MEMBER_ID_MAP:
-        key = MEMBER_ID_MAP[user_id]
+    # Primero por ID exacto (fiable)
+    if user_id and str(user_id) in MEMBER_ID_MAP:
+        key = MEMBER_ID_MAP[str(user_id)]
         return MEMBER_PROFILES.get(key)
-    # Luego por nombre de display
-    name_lower = display_name.lower()
+    # Fallback por display_name: solo match exacto, no substring (evita falsos positivos)
+    name_lower = display_name.lower().strip()
     for key, profile in MEMBER_PROFILES.items():
-        if key in name_lower:
+        if key == name_lower:
             return profile
     return None
 
@@ -6003,7 +6003,7 @@ async def _bender_voice_respond(guild, uid, text):
                     print(f"[VOZ] Error ejecutando acción: {e}")
 
         # 2) Conversación normal con datos reales del canal
-        perfil = MEMBER_PROFILES.get(MEMBER_ID_MAP.get(str(uid), ""), "")
+        perfil = detect_profile(member.display_name if member else "", uid) or ""
         nombre = member.display_name if member else "alguien"
         mood = get_mood()
         _ahora = _spain_now()
@@ -6015,9 +6015,10 @@ async def _bender_voice_respond(guild, uid, text):
             + f"\nHoy es {_fecha_es()}. Hora actual en España: {hora_es}. Estado de ánimo (según la hora): {mood}. Si preguntan el día o la hora, eso es; para mañana u otro día, cuéntalo a partir de hoy."
             + juegos
             + f"\n\n━━━ DATOS REALES DE ESTA LLAMADA (no inventes) ━━━"
-            + f"\nQuien te habla AHORA mismo y a quien DEBES responder: {nombre}." + (f" (Lo que sabes de él, solo si viene al caso: {perfil})" if perfil else "")
+            + f"\nQuien te habla AHORA mismo y a quien DEBES responder: {nombre}."
+            + (f"\nLo que sabes de {nombre}: {perfil}" if perfil else f"\nNo tienes información sobre {nombre}. NO le pongas el nombre de otra persona ni le atribuyas cosas que sabes de otros. {nombre} es {nombre}, punto.")
             + f"\nGente en la llamada ahora mismo: {', '.join(miembros) if miembros else 'solo tú'}."
-            + f"\nQuien te habla AHORA es {nombre}: a él le respondes. Pero ESCUCHAS a todos: esto es una TERTULIA de grupo."
+            + f"\nIMPORTANTE: Quien te habla AHORA es {nombre} y NADIE MÁS. No le confundas con nadie. A él le respondes. Pero ESCUCHAS a todos: esto es una TERTULIA de grupo."
             + "\n\n━━━ CÓMO ESTAR EN LA TERTULIA (IMPORTANTE) ━━━\n"
             "1. Eres LISTO y ÚTIL: contesta DE VERDAD y bien (un dato, una duda, una cuenta, la hora, lo que sea). "
             "Demuestra cabeza, no sueltes gilipolleces.\n"
