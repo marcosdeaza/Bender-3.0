@@ -111,20 +111,32 @@ async def _groq_transcribe(audio_ogg_bytes, duration):
         tmp.write(audio_ogg_bytes)
         tmp_path = tmp.name
     try:
-        with open(tmp_path, "rb") as af:
-            result = _GROQ_CLIENT.audio.transcriptions.create(
-                model="whisper-large-v3",
-                file=af,
-                language="es",
-                response_format="text",
-                temperature=0.0,
-            )
-        _groq_register_usage(duration)
-        if isinstance(result, str):
-            return result.strip()
-        return result.text.strip() if hasattr(result, 'text') else str(result).strip()
+        loop = asyncio.get_event_loop()
+        for intento in range(2):
+            try:
+                with open(tmp_path, "rb") as af:
+                    result = await loop.run_in_executor(
+                        None,
+                        lambda: _GROQ_CLIENT.audio.transcriptions.create(
+                            model="whisper-large-v3",
+                            file=af,
+                            language="es",
+                            response_format="text",
+                            temperature=0.0,
+                            timeout=15,
+                        )
+                    )
+                _groq_register_usage(duration)
+                if isinstance(result, str):
+                    return result.strip()
+                return result.text.strip() if hasattr(result, 'text') else str(result).strip()
+            except Exception as e:
+                print(f"[GROQ] Error (intento {intento+1}): {e}", flush=True)
+                if intento == 0:
+                    await asyncio.sleep(0.5)
+        return None
     except Exception as e:
-        print(f"[GROQ] Error: {e}", flush=True)
+        print(f"[GROQ] Error fatal: {e}", flush=True)
         return None
     finally:
         try:
@@ -6928,11 +6940,13 @@ async def join_voice(member, text_channel=None):
     channel = member.voice.channel
 
     # Cargar motores si no están (primera vez tarda ~15s)
-    if _whisper_model is None or _piper_voice is None:
+    if _piper_voice is None:
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, _load_voice_engines)
-        if _whisper_model is None:
+        if _piper_voice is None:
             return "Se me ha jodido el oído, no puedo entrar."
+        if _GROQ_CLIENT is None:
+            return "No tengo acceso al motor de transcripción. Revisa la configuración."
 
     # Si YA está en un canal de voz y conectado, avisar (no se mueve)
     existing = voice_sessions.get(guild.id)
@@ -7018,7 +7032,7 @@ async def _auto_rejoin_voice(guild):
         if not channel:
             return
         loop = asyncio.get_event_loop()
-        if _whisper_model is None or _piper_voice is None:
+        if _piper_voice is None:
             await loop.run_in_executor(None, _load_voice_engines)
         try:
             if guild.voice_client and guild.voice_client.is_connected():
