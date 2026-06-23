@@ -6601,14 +6601,19 @@ async def _music_resolve(query):
             if res:
                 print(f"[MUSIC] resuelto por YouTube: {res[1]}", flush=True)
                 return res
-        try:
-            res = await loop.run_in_executor(None, _search, True)
-        except Exception:
-            res = None
-        if res:
-            print(f"[MUSIC] resuelto por Audius: {res[1]}", flush=True)
-            return res
-        return None, "Ese link no lo puedo sacar (YouTube me bloquea desde el server). Dime el nombre y lo busco.", None, None
+        # YouTube falló (IP vetada sin cookies). Fallback: buscar el título en Audius.
+        # clean_q ya tiene el título del link sacado vía oEmbed.
+        if clean_q and clean_q != q:
+            print(f"[MUSIC] YouTube falló, buscando en Audius: {clean_q!r}", flush=True)
+            try:
+                res = await loop.run_in_executor(None, _audius_search, clean_q, False)
+            except Exception:
+                res = None
+            if res:
+                print(f"[MUSIC] resuelto por Audius (fallback de link): {res[1]}", flush=True)
+                return res
+            return None, f"No he podido sacar ese link (YouTube me bloquea desde el server y no está en Audius). Prueba a decirme el nombre de la canción.", None, None
+        return None, "Ese link no lo puedo sacar. Dime el nombre y lo busco.", None, None
 
     # TEXTO: Audius directo (rápido). YouTube por texto está casi siempre bloqueado y
     # metería 10-15s de espera por nada, así que no lo intentamos aquí.
