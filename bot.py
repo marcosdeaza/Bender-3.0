@@ -5728,9 +5728,23 @@ async def _voice_listen_loop(guild):
     MAX_BYTES = int(BYTES_PER_SEC * 20)
     sess = voice_sessions.get(guild.id)
     alone_ticks = 0
+    _listen_check = 0
     while sess and sess.get("active"):
         await asyncio.sleep(0.08)
         try:
+            # Auto-reparar listener caído: si el bot deja de escuchar (vc.stop()
+            # desde música/TTS lo puede tirar), re-engancha sin resetear la sesión.
+            _listen_check += 1
+            if _listen_check >= 50:  # cada ~4s
+                _listen_check = 0
+                vc = sess.get("vc")
+                if vc and vc.is_connected():
+                    try:
+                        if not vc.is_listening():
+                            print("[VOZ] Listener caído, re-enganchando.", flush=True)
+                            vc.listen(BenderSink(guild.id))
+                    except Exception:
+                        pass
             # Auto-reparar speaking trabado: si speaking=True pero no está reproduciendo y
             # hace >3s, forzar a False.
             if sess.get("speaking"):
@@ -6282,6 +6296,42 @@ _POT_SERVER_JS = "/app/bgutil/server/build/main.js"
 # SÍ funciona (es lo único que rompe el muro de esta IP de datacenter). Mientras no exista
 # el fichero, ni se intenta YouTube en links (sería 15s de espera para nada).
 _YT_COOKIES = "/app/yt_cookies.txt"
+
+
+def _audius_search(query, strict=False):
+    """Busca una canción en Audius por texto. Devuelve (url, title, artist, art) o None."""
+    import urllib.parse, urllib.request, json as _j
+    if not query or not query.strip():
+        return None
+    h = _audius_host()
+    ref = query.lower()
+    rw = set(w for w in ref.split() if len(w) > 2)
+    try:
+        req = urllib.request.Request(
+            h + "/v1/tracks/search?query=" + urllib.parse.quote(query) + "&app_name=bender",
+            headers={"User-Agent": "Mozilla/5.0"})
+        d = _j.load(urllib.request.urlopen(req, timeout=12))
+    except Exception:
+        return None
+    items = [t for t in d.get("data", []) if not t.get("is_delete")]
+    if not items:
+        return None
+
+    def _art(tr):
+        aw = tr.get("artwork") or {}
+        return aw.get("480x480") or aw.get("150x150") or None
+
+    def score(tr):
+        ti = (tr.get("title", "") + " " + (tr.get("user") or {}).get("name", "")).lower()
+        return (len(rw & set(ti.split())), tr.get("play_count", 0))
+
+    tr = max(items[:8], key=score)
+    if strict:
+        need = max(2, (len(rw) + 1) // 2) if len(rw) >= 2 else 1
+        if score(tr)[0] < need:
+            return None
+    return (h + "/v1/tracks/" + str(tr["id"]) + "/stream?app_name=bender",
+            tr.get("title", "?"), (tr.get("user") or {}).get("name", "?"), _art(tr))
 # Credenciales de la Spotify Web API (client credentials flow — gratis, sin cuenta premium).
 # Fichero: {"client_id": "...", "client_secret": "..."}
 # Si el fichero no existe, las canciones individuales siguen funcionando (vía oEmbed + YT),
@@ -6534,25 +6584,23 @@ async def _music_resolve(query):
                 tr.get("title", "?"), (tr.get("user") or {}).get("name", "?"), _art(tr))
 
     if is_link:
-        # LINK: el usuario quiere ESE tema. Intento YouTube (audio exacto) SOLO si hay
-        # cookies (sin ellas la IP está 100% vetada y serían 15s de espera para nada).
-        if os.path.exists(_YT_COOKIES):
-            if yt_link:
-                yt_target = q
-            elif clean_q and clean_q != q:
-                # Solo buscar en YouTube si tenemos un nombre limpio (no la URL original)
-                yt_target = "ytsearch1:" + clean_q
-            else:
-                yt_target = None
-            if yt_target:
-                print(f"[MUSIC] buscando en YT: {yt_target[:80]!r}", flush=True)
-                try:
-                    res = await loop.run_in_executor(None, _ytdlp_resolve, yt_target)
-                except Exception:
-                    res = None
-                if res:
-                    print(f"[MUSIC] resuelto por YouTube: {res[1]}", flush=True)
-                    return res
+        # LINK: el usuario quiere ESE tema. Intento YouTube (audio exacto).
+        # yt-dlp con player_client=android_vr,tv suele saltarse el muro anti-bot.
+        if yt_link:
+            yt_target = q
+        elif clean_q and clean_q != q:
+            yt_target = "ytsearch1:" + clean_q
+        else:
+            yt_target = None
+        if yt_target:
+            print(f"[MUSIC] buscando en YT: {yt_target[:80]!r}", flush=True)
+            try:
+                res = await loop.run_in_executor(None, _ytdlp_resolve, yt_target)
+            except Exception:
+                res = None
+            if res:
+                print(f"[MUSIC] resuelto por YouTube: {res[1]}", flush=True)
+                return res
         try:
             res = await loop.run_in_executor(None, _search, True)
         except Exception:
@@ -6699,7 +6747,7 @@ async def _dj_loop(guild):
             if q:
                 nxt = q.pop(0)
                 # Resolución LAZY: pistas de playlists de Spotify se resuelven justo
-                # antes de reproducirse (ytsearch1:título+artista → YouTube).
+                # antes de reproducirse. Intento YouTube, fallback Audius.
                 if nxt.get("lazy") and not nxt.get("url"):
                     try:
                         res = await asyncio.get_event_loop().run_in_executor(
@@ -6707,11 +6755,31 @@ async def _dj_loop(guild):
                         if res:
                             nxt["url"], nxt["title"], nxt["artist"], nxt["art"] = res
                         else:
-                            print(f"[DJ] Sin resultado para: {nxt['query']}", flush=True)
-                            continue  # Saltar esta pista, ir a la siguiente
+                            # Fallback: buscar en Audius
+                            print(f"[DJ] YouTube falló, intentando Audius: {nxt['query']}", flush=True)
+                            try:
+                                ares = await asyncio.get_event_loop().run_in_executor(
+                                    None, _audius_search, nxt["query"])
+                                if ares:
+                                    nxt["url"], nxt["title"], nxt["artist"], nxt["art"] = ares
+                                else:
+                                    print(f"[DJ] Sin resultado en YT ni Audius: {nxt['query']}", flush=True)
+                                    continue
+                            except Exception as ae:
+                                print(f"[DJ] Audius fallback error: {ae}", flush=True)
+                                continue
                     except Exception as e:
                         print(f"[DJ] Lazy resolve error: {e}", flush=True)
-                        continue
+                        # Intentar Audius también si YouTube exception
+                        try:
+                            ares = await asyncio.get_event_loop().run_in_executor(
+                                None, _audius_search, nxt["query"])
+                            if ares:
+                                nxt["url"], nxt["title"], nxt["artist"], nxt["art"] = ares
+                            else:
+                                continue
+                        except Exception:
+                            continue
                 try:
                     ff = discord.FFmpegPCMAudio(
                         nxt["url"],
