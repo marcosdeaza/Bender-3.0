@@ -1973,6 +1973,46 @@ async def send_rules_embed(guild: discord.Guild):
     
     print("[NORMAS] Embed de normas enviado/actualizado", flush=True)
 
+async def notify_users_without_rules(guild: discord.Guild):
+    """Envía DM a todos los usuarios que no han aceptado las normas"""
+    limited_role = guild.get_role(LIMITED_ROLE_ID)
+    if not limited_role:
+        return
+    
+    notified_count = 0
+    for member in guild.members:
+        if member.bot:
+            continue
+        
+        # Si NO tiene rol ? (ya autenticado) y NO ha aceptado normas
+        has_limited = limited_role in member.roles
+        accepted = data.get("accepted_rules", {}).get(str(member.id), False)
+        already_notified = data.get("rules_notified", {}).get(str(member.id), False)
+        
+        if not has_limited and not accepted and not already_notified:
+            try:
+                await member.send(
+                    f"⛧ **NUEVAS NORMAS EN CHEPA 3.0** ⛧\n\n"
+                    f"Hola {member.display_name},\n\n"
+                    f"Se han actualizado las normas del servidor.\n\n"
+                    f"**Para seguir participando debes aceptar los nuevos términos.**\n\n"
+                    f"Ve a <#{RULES_CHANNEL_ID}> y reacciona con {RULES_ACCEPT_EMOJI}\n\n"
+                    f"Si no aceptas, no podrás:\n"
+                    f"• Enviar mensajes en los canales\n"
+                    f"• Unirte a canales de voz\n"
+                    f"• Usar funciones del bot\n\n"
+                    f"⛧ El desconocimiento no exime del cumplimiento ⛧"
+                )
+                data.setdefault("rules_notified", {})[str(member.id)] = True
+                notified_count += 1
+                await asyncio.sleep(0.5)  # Rate limit
+            except Exception:
+                pass  # No puede recibir DMs
+    
+    if notified_count > 0:
+        save_data(data)
+        print(f"[NORMAS] Notificados por DM: {notified_count} usuarios", flush=True)
+
 async def send_identity_panel(member: discord.Member, channel: discord.TextChannel, guild: discord.Guild):
     current_emoji = None
     for emoji, role_id in COLOR_ROLES.items():
@@ -4299,6 +4339,9 @@ async def on_ready():
     
     # ─── NUEVO: Enviar embed de normas ───
     await send_rules_embed(guild)
+    
+    # ─── NUEVO: Notificar por DM a usuarios sin aceptar normas ───
+    await notify_users_without_rules(guild)
     
     try:
         bot.add_view(MusicPanelView())
