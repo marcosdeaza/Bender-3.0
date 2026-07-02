@@ -226,10 +226,11 @@ VOICE_CREATOR_ID           = _env_int("VOICE_CREATOR_ID")
 AI_CHANNEL_ID              = _env_int("AI_CHANNEL_ID")
 PINNED_RESPONSE_CHANNEL_ID = _env_int("PINNED_RESPONSE_CHANNEL_ID")
 
-# NUEVO: Sistema de normas obligatorio
-RULES_CHANNEL_ID           = 1432077561055281483   # #✟ - canal de normas
-RULES_ACCEPT_EMOJI           = "<:CHEPA:1491625223450132520>"  # Emoji para aceptar
-RULES_IMAGE_URL             = "https://media.discordapp.net/attachments/1432077561055281486/1491593401513279661/image.png?ex=6a47001b&is=6a45ae9b&hm=e74478283df136704123cd44df21727a84d21e24a0fc15b2709578d2702197a5&=&format=webp&quality=lossless&width=2576&height=1044"
+# NUEVO: Sistema de normas obligatorio (IDs desde .env para no hardcodear)
+RULES_CHANNEL_ID           = _env_int("RULES_CHANNEL_ID", 0)   # Canal de normas
+RULES_ACCEPT_EMOJI         = os.getenv("RULES_ACCEPT_EMOJI", "✅")  # Emoji para aceptar (formato <:name:id> o unicode)
+RULES_IMAGE_URL            = os.getenv("RULES_IMAGE_URL", "")  # URL de imagen para embed de normas
+NOTIFICATIONS_CHANNEL_ID   = _env_int("NOTIFICATIONS_CHANNEL_ID", 0)  # Canal para anuncios @everyone
 
 DISCORD_TOKEN  = os.getenv("DISCORD_TOKEN", "")
 OPENAI_API_KEY = os.getenv("OPENROUTER_API_KEY", "")   # clave de OpenRouter (compatible OpenAI)
@@ -252,45 +253,11 @@ WHATSAPP_BRIDGE_URL = os.getenv("WHATSAPP_BRIDGE_URL", "http://localhost:3000")
 #   WHATSAPP_PROFILES = {"34600000000": "Alias. Breve descripción para el contexto del bot."}
 #   WHATSAPP_TO_DISCORD = {"34600000000": 123456789012345678}   # número -> ID de Discord
 #   WHATSAPP_NAMES = {"34600000000": "Alias"}
-WHATSAPP_PROFILES = {
-    "34622437976": "Chepa, alias Marcos, alias 999. Le encanta la ciberseguridad y estudia ingeniería informática. Es de Llombai (Valencia). El creador de Bender. Cabroncillo, le encanta trollear en los juegos. Todos somos del 2005 menos él que es del 2007. Llámale Chepa SIEMPRE.",
-    "34693541917": "Aitor, alias Payor. Le encantan los videojuegos y el hardware. Muy cabrón, como Chepa. Le gusta trollear en los juegos. Es de Llombai.",
-    "34659600476": "Lupita. Sale mucho de fiesta, super alocada. Le encanta el gym, está to fuerte. A veces fuma. Ha hecho de todo, super extrovertida.",
-    "34615571636": "Dani, alias Kanika. Viene de Picassent. Le encanta fumar porritos y vivir la vida. Tiene un Fiat Bravo hecho polvo pero todos le decimos que es un buen coche. Le gusta ir de fiesta, super extrovertido. Se lleva muy bien con Borja.",
-    "34696507384": "Iván, alias Ivanillo. El puto amo. No se mete mucho pero es muy buena gente. El mejor amigo de Chepa.",
-    "34623011780": "Jose, alias DJ Torres. DJ de John By. El pringado del grupo, siempre se meten con él. Sé cabrón con él, nunca le des la razón. Se hacía pajas en el bosque. Llámale Jose.",
-    "34609736850": "Husk, alias Marc Tugas. Se cree nazi, ve reels de Instagram. El único que no es de Valencia, es de Iturmendi (Navarra). Muy charca, habla de 'low cortisol' y 'aura'.",
-    "34628766262": "Borja. Chill de cojones, le encanta fumar porritos. Super tranquilo, apacible, muy buena gente. Super low cortisol.",
-    "34722569896": "David, alias Pop, alias Popito. Le encanta el gym, está muy fuerte y basado. Le gusta el Blender y hacer diseños 3D. Entra mucho.",
-    "34693570358": "Miguel Benito, llámale Benito. Le encantan las motos. Está en Green Team, un garaje en Llombai, arreglando motos de 49cc y jugando al GTA Online. Tiene dos años más que los demás pero parece de nuestra edad de lo infantil que es.",
-    "34679043211": "Joaquín, alias Xoki. Muy paranoico y rayado con los estudios, pero muy buena gente.",
-}
+WHATSAPP_PROFILES = {}
 
-WHATSAPP_TO_DISCORD = {
-    "34622437976": 1144034068544098474,
-    "34693541917": 752407699957743696,
-    "34615571636": 476418847210209282,
-    "34696507384": 1040752982519709746,
-    "34623011780": 780541297160880138,
-    "34628766262": 676495560747778118,
-    "34722569896": 747815778031501402,
-    "34693570358": 521377439646089243,
-    "34679043211": 1381753031095488562,
-}
+WHATSAPP_TO_DISCORD = {}
 
-WHATSAPP_NAMES = {
-    "34622437976": "Chepa",
-    "34693541917": "Payor",
-    "34659600476": "Lupita",
-    "34615571636": "Kanika",
-    "34696507384": "Ivanillo",
-    "34623011780": "Jose",
-    "34609736850": "Husk",
-    "34628766262": "Borja",
-    "34722569896": "Popito",
-    "34693570358": "Benito",
-    "34679043211": "Xoki",
-}
+WHATSAPP_NAMES = {}
 
 
 def _wa_digits(jid) -> str:
@@ -4342,6 +4309,28 @@ async def on_ready():
     
     # ─── NUEVO: Notificar por DM a usuarios sin aceptar normas ───
     await notify_users_without_rules(guild)
+    
+    # ─── NUEVO: Anuncio de normas en canal de notificaciones ───
+    if NOTIFICATIONS_CHANNEL_ID:
+        notif_channel = guild.get_channel(NOTIFICATIONS_CHANNEL_ID)
+        if notif_channel:
+            try:
+                await notif_channel.send(
+                    "@everyone\n\n"
+                    "⛧ **ACTUALIZACIÓN DE TÉRMINOS — CHEPA 3.0** ⛧\n\n"
+                    "El servidor evoluciona. A partir de ahora, **Chepa 3.0 es +18 y explícito**.\n\n"
+                    "**¿Qué cambia?**\n"
+                    "• Contenido sensible sin filtros de plataforma\n"
+                    "• Privacidad garantizada — lo que ocurre aquí, se queda aquí\n"
+                    "• Nuevas medidas de protección para el colectivo\n\n"
+                    "**¿Qué necesitas hacer?**\n"
+                    f"Ve a <#{RULES_CHANNEL_ID}> y acepta los términos. Sin eso, el bot te bloquea en todos los canales y te expulsa de voz.\n\n"
+                    "No es opcional. Es entrar o no entrar.\n\n"
+                    "⛧ **El desconocimiento no exime del cumplimiento** ⛧"
+                )
+                print("[NORMAS] Anuncio enviado a canal de notificaciones", flush=True)
+            except Exception as e:
+                print(f"[NORMAS] Error enviando anuncio: {e}", flush=True)
     
     try:
         bot.add_view(MusicPanelView())
