@@ -226,6 +226,11 @@ VOICE_CREATOR_ID           = _env_int("VOICE_CREATOR_ID")
 AI_CHANNEL_ID              = _env_int("AI_CHANNEL_ID")
 PINNED_RESPONSE_CHANNEL_ID = _env_int("PINNED_RESPONSE_CHANNEL_ID")
 
+# NUEVO: Sistema de normas obligatorio
+RULES_CHANNEL_ID           = 1432077561055281483   # #✟ - canal de normas
+RULES_ACCEPT_EMOJI           = "<:CHEPA:1491625223450132520>"  # Emoji para aceptar
+RULES_IMAGE_URL             = "https://media.discordapp.net/attachments/1432077561055281486/1491593401513279661/image.png?ex=6a47001b&is=6a45ae9b&hm=e74478283df136704123cd44df21727a84d21e24a0fc15b2709578d2702197a5&=&format=webp&quality=lossless&width=2576&height=1044"
+
 DISCORD_TOKEN  = os.getenv("DISCORD_TOKEN", "")
 OPENAI_API_KEY = os.getenv("OPENROUTER_API_KEY", "")   # clave de OpenRouter (compatible OpenAI)
 
@@ -248,12 +253,43 @@ WHATSAPP_BRIDGE_URL = os.getenv("WHATSAPP_BRIDGE_URL", "http://localhost:3000")
 #   WHATSAPP_TO_DISCORD = {"34600000000": 123456789012345678}   # número -> ID de Discord
 #   WHATSAPP_NAMES = {"34600000000": "Alias"}
 WHATSAPP_PROFILES = {
+    "34622437976": "Chepa, alias Marcos, alias 999. Le encanta la ciberseguridad y estudia ingeniería informática. Es de Llombai (Valencia). El creador de Bender. Cabroncillo, le encanta trollear en los juegos. Todos somos del 2005 menos él que es del 2007. Llámale Chepa SIEMPRE.",
+    "34693541917": "Aitor, alias Payor. Le encantan los videojuegos y el hardware. Muy cabrón, como Chepa. Le gusta trollear en los juegos. Es de Llombai.",
+    "34659600476": "Lupita. Sale mucho de fiesta, super alocada. Le encanta el gym, está to fuerte. A veces fuma. Ha hecho de todo, super extrovertida.",
+    "34615571636": "Dani, alias Kanika. Viene de Picassent. Le encanta fumar porritos y vivir la vida. Tiene un Fiat Bravo hecho polvo pero todos le decimos que es un buen coche. Le gusta ir de fiesta, super extrovertido. Se lleva muy bien con Borja.",
+    "34696507384": "Iván, alias Ivanillo. El puto amo. No se mete mucho pero es muy buena gente. El mejor amigo de Chepa.",
+    "34623011780": "Jose, alias DJ Torres. DJ de John By. El pringado del grupo, siempre se meten con él. Sé cabrón con él, nunca le des la razón. Se hacía pajas en el bosque. Llámale Jose.",
+    "34609736850": "Husk, alias Marc Tugas. Se cree nazi, ve reels de Instagram. El único que no es de Valencia, es de Iturmendi (Navarra). Muy charca, habla de 'low cortisol' y 'aura'.",
+    "34628766262": "Borja. Chill de cojones, le encanta fumar porritos. Super tranquilo, apacible, muy buena gente. Super low cortisol.",
+    "34722569896": "David, alias Pop, alias Popito. Le encanta el gym, está muy fuerte y basado. Le gusta el Blender y hacer diseños 3D. Entra mucho.",
+    "34693570358": "Miguel Benito, llámale Benito. Le encantan las motos. Está en Green Team, un garaje en Llombai, arreglando motos de 49cc y jugando al GTA Online. Tiene dos años más que los demás pero parece de nuestra edad de lo infantil que es.",
+    "34679043211": "Joaquín, alias Xoki. Muy paranoico y rayado con los estudios, pero muy buena gente.",
 }
 
 WHATSAPP_TO_DISCORD = {
+    "34622437976": 1144034068544098474,
+    "34693541917": 752407699957743696,
+    "34615571636": 476418847210209282,
+    "34696507384": 1040752982519709746,
+    "34623011780": 780541297160880138,
+    "34628766262": 676495560747778118,
+    "34722569896": 747815778031501402,
+    "34693570358": 521377439646089243,
+    "34679043211": 1381753031095488562,
 }
 
 WHATSAPP_NAMES = {
+    "34622437976": "Chepa",
+    "34693541917": "Payor",
+    "34659600476": "Lupita",
+    "34615571636": "Kanika",
+    "34696507384": "Ivanillo",
+    "34623011780": "Jose",
+    "34609736850": "Husk",
+    "34628766262": "Borja",
+    "34722569896": "Popito",
+    "34693570358": "Benito",
+    "34679043211": "Xoki",
 }
 
 
@@ -312,9 +348,31 @@ def resolve_wa_identity(payload: dict):
 # Ejemplo:
 #   MEMBER_PROFILES = {"alias": "También llamado X. Aficiones, manías, rollito..."}
 MEMBER_PROFILES = {
+    "dazasec": "Chepa, alias Marcos, alias 999. Le encanta la ciberseguridad y estudia ingeniería informática. Es de Llombai (Valencia). El creador de Bender. Cabroncillo como Payor, le encanta trollear en los juegos. Todos somos del 2005 menos él que es del 2007. Llámale Chepa SIEMPRE, no Marcos.",
+    "aiorpro": "Aitor, alias Payor. Le encantan los videojuegos y el hardware. Muy cabrón, como Chepa. Le gusta trollear en los juegos. Es de Llombai.",
+    "payor": "Aitor, alias Payor. Le encantan los videojuegos y el hardware. Muy cabrón, como Chepa. Le gusta trollear en los juegos. Es de Llombai.",
+    "husk": "Husk, alias Marc Tugas. Se cree nazi, ve reels de Instagram. El único que no es de Valencia, es de Iturmendi (Navarra). Muy charca, habla de 'low cortisol' y 'aura'.",
+    "ivandb07": "Iván, alias Ivanillo. El puto amo. No se mete mucho pero es muy buena gente. El mejor amigo de Chepa.",
+    "exf2": "Joaquín, alias Xoki. Muy paranoico y rayado con los estudios, pero muy buena gente.",
+    "roboticpop1203": "David, alias Pop, alias Popito. Le encanta el gym, está muy fuerte y basado. Le gusta el Blender y hacer diseños 3D. Entra mucho.",
+    "borjaa_69": "Borja. Chill de cojones, le encanta fumar porritos. Super tranquilo, apacible, muy buena gente. Super low cortisol.",
+    "danielmrtnz": "Dani, alias Kanika. Viene de Picassent. Le encanta fumar porritos y vivir la vida. Tiene un Fiat Bravo hecho polvo pero todos le decimos que es un buen coche. Le gusta ir de fiesta, super extrovertido. Se lleva muy bien con Borja.",
+    "lucplay3r": "Lucas. Saliendo de fiesta, super alocado. Le encanta el gym, está to fuerte, más tipo armado que atlético. A veces fuma.",
+    "miigueel7": "Miguel Benito, llámale Benito. Le encantan las motos. Está en Green Team, un garaje en Llombai, arreglando motos de 49cc y jugando al GTA Online. Tiene dos años más que los demás pero parece de nuestra edad de lo infantil que es.",
+    "djtorres_": "Jose, alias DJ Torres. DJ de John By. El pringado del grupo, siempre se meten con él. Sé cabrón con él, nunca le des la razón. Se hacía pajas en el bosque. Llámale Jose, no DJ Torres.",
 }
 
 MEMBER_ID_MAP = {
+    "1144034068544098474": "dazasec",
+    "752407699957743696": "aiorpro",
+    "1040752982519709746": "ivandb07",
+    "1381753031095488562": "exf2",
+    "747815778031501402": "roboticpop1203",
+    "676495560747778118": "borjaa_69",
+    "476418847210209282": "danielmrtnz",
+    "820405492500398101": "lucplay3r",
+    "521377439646089243": "miigueel7",
+    "780541297160880138": "djtorres_",
 }
 
 SERVER_NAME = os.getenv("SERVER_NAME", "el server")
@@ -615,14 +673,33 @@ current_rec_ch: dict = {}
 # =====================================================================
 # Roles de color por reacción de emoji.
 COLOR_ROLES = {
-    # Rellena con tus emojis y role IDs reales del servidor
-    # "🔥": 123456789012345678,
+    "<:blood:1432460543695786045>": 1432438827473174538,
+    "<:caca:1432460577040633977>": 1432438922537074889,
+    "<:weed:1432460901327306883>": 1432438953939566592,
+    "<:ice:1432461184841289768>": 1432438970310066397,
+    "<:haze:1432472281547935865>": 1432438981944934432,
+    "<:pig:1432462018836959316>": 1432438994624450621,
+    "<:vamp:1432462278183227393>": 1432439009673613412,
+    "<:KKK:1432462725333909596>": 1432439022508179456,
+    "<:spain:1432462796175704064>": 1432439040031854643,
+    "<:thunder:1432463581101817957>": 1432439652278730864,
+    "<:EUR:1432463602161549504>": 1432458310145015940,
 }
 EMOJI_TO_ROLE = {e: r for e, r in COLOR_ROLES.items() if r}
 
 # Nombre/descripción que se muestra en el panel de identidad para cada emoji.
 ROLE_NAMES = {
-    # "🔥": "**FUEGO** ─ Pasión ardiente",
+    "<:blood:1432460543695786045>": "**BLOOD** ─ Sangre oscura",
+    "<:caca:1432460577040633977>": "**CACA** ─ Naturaleza bruta",
+    "<:weed:1432460901327306883>": "**WEED** ─ Mente calmada",
+    "<:ice:1432461184841289768>": "**ICE** ─ Frialdad absoluta",
+    "<:haze:1432472281547935865>": "**HAZE** ─ Control mental",
+    "<:pig:1432462018836959316>": "**PIG** ─ Pervertidos de raza",
+    "<:vamp:1432462278183227393>": "**VAMP** ─ Sed nocturna",
+    "<:KKK:1432462725333909596>": "**MILKY** ─ Pureza aria",
+    "<:spain:1432462796175704064>": "**ESPAÑA** ─ Orgullo ibérico",
+    "<:thunder:1432463581101817957>": "**THUNDER** ─ Noche tormentosa",
+    "<:EUR:1432463602161549504>": "**RICH** ─ Riqueza suprema",
 }
 
 # =====================================================================
@@ -1829,6 +1906,72 @@ async def create_self_channel(member: discord.Member, guild: discord.Guild) -> d
     await send_activity_panel(member, channel)
 
     return channel
+
+async def send_rules_embed(guild: discord.Guild):
+    """Crea o actualiza el embed de normas en el canal #✟"""
+    channel = guild.get_channel(RULES_CHANNEL_ID)
+    if not channel:
+        print("[NORMAS] Canal no encontrado", flush=True)
+        return
+    
+    # Buscar mensaje existente de normas
+    rules_msg_id = data.get("rules_message_id")
+    existing_msg = None
+    if rules_msg_id:
+        try:
+            existing_msg = await channel.fetch_message(rules_msg_id)
+        except Exception:
+            pass
+    
+    # Crear embed dark/clean
+    embed = discord.Embed(
+        title="⛧ CHEPA 3.0 ⛧",
+        description="**ACCESO RESTRINGIDO**",
+        color=0x1a1a2e
+    )
+    
+    embed.add_field(
+        name="─────────────────────",
+        value=(
+            "Al permanecer en este servidor, aceptas:\n\n"
+            "**CONTENIDO EXPLICITO (+18)**\n"
+            "Material sensible, explicito y no apto para menores.\n\n"
+            "**PROHIBIDO REPORTAR**\n"
+            "La actividad interna no se externaliza. Lo que ocurre aqui, se queda aqui.\n\n"
+            "**MULTICUENTAS BANEADAS**\n"
+            "Una cuenta por persona. Segundas cuentas = expulsion.\n\n"
+            "**SIN PRIVACIDAD GARANTIZADA**\n"
+            "Este es un espacio libertario. No hay expectativas de confidencialidad.\n\n"
+            "**AUTOMODERACION ACTIVA**\n"
+            "El bot tiene autoridad para restringir acceso sin previo aviso."
+        ),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="─────────────────────",
+        value=f"Reacciona con {RULES_ACCEPT_EMOJI} para aceptar y obtener acceso",
+        inline=False
+    )
+    
+    embed.set_image(url=RULES_IMAGE_URL)
+    embed.set_footer(text="El desconocimiento de las reglas no exime de su cumplimiento")
+    
+    if existing_msg:
+        await existing_msg.edit(embed=embed)
+        msg = existing_msg
+    else:
+        msg = await channel.send(embed=embed)
+        data["rules_message_id"] = msg.id
+        save_data(data)
+    
+    # Añadir reacción automática
+    try:
+        await msg.add_reaction(RULES_ACCEPT_EMOJI)
+    except Exception as e:
+        print(f"[NORMAS] Error añadiendo reacción: {e}", flush=True)
+    
+    print("[NORMAS] Embed de normas enviado/actualizado", flush=True)
 
 async def send_identity_panel(member: discord.Member, channel: discord.TextChannel, guild: discord.Guild):
     current_emoji = None
@@ -3965,6 +4108,17 @@ async def actividad_cmd(interaction: discord.Interaction, usuario: discord.Membe
     embed.add_field(name="Tiempo en llamada", value=format_time(act["voice_seconds"]), inline=True)
     await interaction.response.send_message(embed=embed)
 
+
+@bot.tree.command(name="normas", description="Refresca el panel de normas (Admin)")
+async def normas_cmd(interaction: discord.Interaction):
+    if interaction.user.id not in ADMIN_IDS:
+        await interaction.response.send_message("⛧ No tienes permiso.", ephemeral=True)
+        return
+    
+    await send_rules_embed(interaction.guild)
+    await interaction.response.send_message("✅ Panel de normas actualizado.", ephemeral=True)
+
+
 @tasks.loop(minutes=5)
 async def refresh_activity_panels():
     """Actualiza los paneles de actividad cada 5 minutos y limpia paneles de voz huérfanos."""
@@ -4141,7 +4295,11 @@ async def on_ready():
 
     await cleanup_orphaned_channels(guild)
     await restore_voice_panels(guild)
-    await purge_orphan_voice_panels(guild)   # limpia paneles de voz muertos
+    await purge_orphan_voice_panels(guild)
+    
+    # ─── NUEVO: Enviar embed de normas ───
+    await send_rules_embed(guild)
+    
     try:
         bot.add_view(MusicPanelView())
     except Exception:
@@ -4197,6 +4355,32 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
         return
 
     user_id = str(member.id)
+
+    # ─── NUEVO: Expulsar de canales de voz si no aceptó normas ───
+    # Solo aplica si: NO tiene rol LIMITED_ROLE_ID (?) y NO ha aceptado normas
+    if after.channel and after.channel.id != VOICE_CREATOR_ID:
+        limited_role = member.guild.get_role(LIMITED_ROLE_ID)
+        has_limited = limited_role and limited_role in member.roles
+        accepted = data.get("accepted_rules", {}).get(user_id, False)
+        
+        if not has_limited and not accepted:
+            # Expulsar del canal de voz
+            try:
+                await member.move_to(None)
+                print(f"[NORMAS] {member.name} expulsado de voz (no aceptó normas)", flush=True)
+            except Exception:
+                pass
+            
+            # Notificar por DM
+            try:
+                await member.send(
+                    f"⛧ **ACCESO RESTRINGIDO** ⛧\n\n"
+                    f"No puedes unirte a canales de voz sin aceptar los términos.\n\n"
+                    f"Ve a <#{RULES_CHANNEL_ID}> y reacciona con {RULES_ACCEPT_EMOJI}"
+                )
+            except Exception:
+                pass
+            return
 
     # ─── ENTRAR AL CREATOR ───
     # Solo si realmente ENTRÓ al creator (cambio de canal), no por toggles de
@@ -4443,6 +4627,37 @@ async def handle_dm(message: discord.Message):
 async def on_message(message: discord.Message):
     if message.author.bot:
         return
+    
+    # ─── NUEVO: Restricción de normas ───
+    # Si NO tiene rol LIMITED_ROLE_ID (?) y NO ha aceptado normas → bloquear
+    if message.guild and message.guild.id == GUILD_ID:
+        member = message.guild.get_member(message.author.id)
+        if member:
+            limited_role = message.guild.get_role(LIMITED_ROLE_ID)
+            has_limited = limited_role and limited_role in member.roles
+            accepted = data.get("accepted_rules", {}).get(str(message.author.id), False)
+            
+            # Sin rol ? (libre) y sin aceptar normas → bloquear
+            if not has_limited and not accepted:
+                # Borrar mensaje
+                try:
+                    await message.delete()
+                except Exception:
+                    pass
+                
+                # Enviar DM
+                try:
+                    await message.author.send(
+                        f"⛧ **ACCESO RESTRINGIDO** ⛧\n\n"
+                        f"No has aceptado los términos y condiciones de Chepa 3.0.\n\n"
+                        f"Para participar en el servidor, debes aceptar las normas en:\n"
+                        f"<#{RULES_CHANNEL_ID}>\n\n"
+                        f"Reacciona con {RULES_ACCEPT_EMOJI} para confirmar que aceptas."
+                    )
+                except Exception:
+                    pass
+                return
+    
     # ─── MENSAJES PRIVADOS (DM) a Bender ───
     if message.guild is None:
         await handle_dm(message)
@@ -5075,6 +5290,37 @@ async def execute_voice_action(action: str, params: dict,
 async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
     if payload.user_id == bot.user.id:
         return
+    
+    # ─── NUEVO: Sistema de normas obligatorio ───
+    if payload.channel_id == RULES_CHANNEL_ID:
+        emoji_str = str(payload.emoji)
+        if emoji_str == RULES_ACCEPT_EMOJI or emoji_str == "CHEPA":
+            guild = bot.get_guild(payload.guild_id)
+            if not guild:
+                return
+            member = guild.get_member(payload.user_id)
+            if not member:
+                return
+            
+            # Marcar que ha aceptado las normas
+            uid = str(payload.user_id)
+            data.setdefault("accepted_rules", {})[uid] = True
+            save_data(data)
+            
+            # Notificar por DM
+            try:
+                await member.send(
+                    "✅ **Has aceptado los términos y condiciones de Chepa 3.0.**\n\n"
+                    "Ahora tienes acceso completo al servidor.\n\n"
+                    "Bienvenido al lado oscuro."
+                )
+            except Exception:
+                pass
+            
+            print(f"[NORMAS] {member.name} ha aceptado las normas", flush=True)
+        return
+    
+    # ─── Sistema de roles por reacción (existente) ───
     uid = str(payload.user_id)
     ud = data.get("user_channels", {}).get(uid)
     if not ud:
@@ -6354,8 +6600,8 @@ def _sc_get_client_id():
                 continue
     except Exception:
         pass
-    # Fallback: client_id público (visible en el JS de soundcloud.com)
-    return None
+    # Fallback: client_id conocido
+    return "cRTw6GjgH7WJ4vlUCvSb0TfMay14HuXK"
 
 def _sc_search(query, limit=5):
     """Busca canciones en SoundCloud. Devuelve lista de tracks."""
